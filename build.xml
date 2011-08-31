@@ -1,0 +1,688 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- Copyright Rene Mayrhofer
+     File created 2005-09
+   
+     This program is free software; you can redistribute it and/or modify
+     it under the terms of the GNU General Public License as published by
+     the Free Software Foundation; either version 2 of the License, or
+     (at your option) any later version.
+-->
+
+<project name="openuat" default="compile-midp" basedir=".">
+	<property name="src" location="src"/>
+	<property name="resources" location="resources"/>
+	<property name="build" location="build"/>
+	<property name="lib" location="lib"/>
+	<property name="dist" location="dist"/>
+	
+	<!-- J2ME adapters and client applications -->
+	<property name="thirdparty-microlog" location="${thirdparty}/microlog"/>
+	<property name="bin-microlog" location="${build}/bin-microlog"/>
+	<property name="thirdparty-bandy" location="${thirdparty}/bandy"/>
+	<property name="bin-bandy" location="${build}/bin-bandy"/>
+	<property name="thirdparty-microlog-wrapper" location="${thirdparty}/log4jNoop"/>
+	<property name="build.midp.work" location="${build}/midp-work"/>
+	<property name="build.midp.temp" location="${build}/midp-tmp"/>
+	<property name="bin.midp" location="${build}/midp-bin"/>
+
+	<!-- Language level to compile for -->
+	<property name="compile.level" value="1.5" />
+	<property name="compile.debug" value="true" />
+	<property name="debug" value="false" />
+
+	<!-- Settings for MIDP builds -->
+	<!-- The polish.home property needs to point to the directory -->
+	<!-- containing the J2ME Polish installation.                 -->
+	
+	<property file="${src}/build.properties" />
+	
+	<!-- import global properties                                 -->
+	<property file="${polish.home}/global.properties" />
+	<!-- the device for the test mode - you can define it on the command-line
+	     using the -D switch, e.g. ant -Ddevice=Generic/midp2 emulator -->
+	<property name="device" value="Generic/midp2"/>
+	<property name="midp_libs" value="${polish.home}/import/midp-2.0.jar:${polish.home}/import/cldc-1.1-java5.0.jar" />
+	<!-- These classes can only be compiled with J2ME MIDP class libraries -->
+	<property name="midp-only-files" value="**/j2me/**/*.java" />
+	<property name="preverified" location="${build}/bin-preverified"/>
+	
+	<!-- this can be used in a refid for filesets -->
+	<fileset id="lib.alljars" dir="${lib}">
+		<include name="**/*.jar"/>
+	</fileset>
+    
+	<!-- these can be used in a refid for classpaths -->
+	<path id="lib.path.jars">
+		<fileset refid="lib.alljars"/>
+	</path>
+	<path id="lib.path.jars_BCcore">
+		<fileset refid="lib.alljars"/>
+		<pathelement location="${bin-BC-core}"/>
+	</path>
+	<path id="lib.path.jars_BCx509">
+		<fileset refid="lib.alljars"/>
+		<pathelement location="${bin-BC-core}"/>
+		<pathelement location="${bin-BC-x509}"/>
+	</path>
+
+	<path id="lib.path.midp">
+		<pathelement location="${lib}/j2me/midpapi20.jar"/>
+		<pathelement location="${lib}/j2me/cldcapi11.jar"/>
+		<pathelement location="${lib}/j2me/jsr082.jar"/>
+		<pathelement location="${lib}/j2me/jsr75.jar"/>
+		<pathelement location="${lib}/j2me/jsr234.jar"/>
+		<pathelement location="${lib}/j2me/mmapi.jar"/>
+		<pathelement location="${bin-microlog}"/>
+		<pathelement location="${bin-bandy}"/>
+		<pathelement location="${bin-BC-core}"/>
+		<pathelement location="${bin-google-zxing}"/>
+		<pathelement location="${lib}/junit.jar"/>
+	</path>
+	
+	<!--                                                                           -->
+	<!-- Starting from here, it's build rules that shouldn't need any modification -->
+	<!--                                                                           -->
+
+	<!-- Figure out if we have a usable J2ME Polish and WTK installation for compiling and preverifying J2ME MIDP code -->
+	<condition property="haveWTK">
+		<and>
+			<available file="enough-j2mepolish-build.jar" type="file" filepath="${polish.home}/lib/"/>
+			<available file="jdom.jar" type="file" filepath="${polish.home}/lib/"/>
+			<available classname="javax.microedition.io.SecureConnection" classpathref="lib.path.midp"/>
+			<available classname="javax.microedition.pki.Certificate" classpathref="lib.path.midp"/>
+			<available classname="javax.microedition.lcdui.Display" classpathref="lib.path.midp"/>
+			<available classname="com.sun.cldc.io.ConsoleOutputStream" classpathref="lib.path.midp"/>
+			<available classname="de.enough.polish.ant.PolishTask" classpath="${polish.home}/lib/enough-j2mepolish-build.jar:${polish.home}/lib/jdom.jar"/>
+		</and>
+	</condition>
+	<condition property="haveWTK.echo" value="true" else="false">
+		<isset property="haveWTK"/>
+	</condition>
+
+	<target name="enableDebug" 
+		description="Call this target first to skip the obfuscation step, call the emulator and start the debugger, e.g. ant enableDebug j2mepolish"
+		>
+		<property name="debug" value="true" />
+	</target>
+	
+	<target name="compile" description="Compile code">
+        <mkdir dir="${bin-core}"/>
+        <mkdir dir="${bin-auxchannels}"/>
+        <mkdir dir="${bin-apps}"/>
+        <mkdir dir="${bin-test}"/>
+		<mkdir dir="${bin-BC-core}"/>
+		<mkdir dir="${bin-BC-x509}"/>
+		<mkdir dir="${bin-BC-openssl}"/>
+		<mkdir dir="${bin-apache-bzip2}"/>
+		<mkdir dir="${bin-google-zxing}"/>
+	
+		<!-- Keep track of the build number -->
+		<buildnumber/>
+		<echo message="Compiling OpenUAT build number ${build.number}, detected:" level="info"/>
+		<echo message="    Java5: ${haveJava5.echo}" level="info"/>
+		<echo message="    Java6: ${haveJava6.echo}" level="info"/>
+		<echo message="    WTK with MIDP2.0 and CLDC1.1: ${haveWTK.echo}" level="info"/>
+	
+		<echo message="    * Compiling thirdparty crypto core"/>
+		<!-- Compile the BC core dependencies -->
+		<javac srcdir="${thirdparty-BC-core}" destdir="${bin-BC-core}" includeAntRuntime="no"
+		       classpathref="lib.path.jars" debug="${compile.debug}" target="${compile.level}" source="${compile.level}" />
+	
+		<!-- Compile the BC X.509 dependencies -->
+		<javac srcdir="${thirdparty-BC-x509}" destdir="${bin-BC-x509}" includeAntRuntime="no"
+		       classpathref="lib.path.jars_BCcore" debug="${compile.debug}" target="${compile.level}" source="${compile.level}" />
+	
+		<!-- Compile the BC openssl interoperability dependencies -->
+		<javac srcdir="${thirdparty-BC-openssl}" destdir="${bin-BC-openssl}" includeAntRuntime="no"
+		       classpathref="lib.path.jars_BCx509" debug="${compile.debug}" target="${compile.level}" source="${compile.level}" />
+
+		<echo message="    * Compiling other thirdparty helper code"/>
+		<!-- Compile the Apache BZIP2 stream dependencies -->
+		<javac srcdir="${thirdparty-apache-bzip2}" destdir="${bin-apache-bzip2}" includeAntRuntime="no"
+		       classpathref="lib.path.jars" debug="${compile.debug}" target="${compile.level}" source="${compile.level}" />
+		       
+	        <!-- And the Google Zxing QR codes -->
+		<javac srcdir="${thirdparty-google-zxing}" destdir="${bin-google-zxing}" includeAntRuntime="no"
+		       classpathref="lib.path.jars" debug="${compile.debug}" target="${compile.level}" source="${compile.level}">
+			<exclude name="${midp-only-files}" />
+		</javac>		       
+
+		<echo message="    * Compiling OpenUAT core: sensor data and utility"/>
+		<!-- Compile our own classes... -->
+		<javac srcdir="${src}" destdir="${bin-core}" includeAntRuntime="no"
+		       classpathref="lib.path.all" debug="${compile.debug}" target="${compile.level}" source="${compile.level}"
+		       includes="org/openuat/channel/main org/openuat/util/ org/openuat/sensors/ org/openuat/features/" 
+			   excludes="org/openuat/channel/main/bluetooth/jsr82/">
+			<exclude name="${test-files1}" />
+			<exclude name="${test-files2}" />
+			<exclude name="${test-files3}" />
+			<exclude name="${java5-core-files1}" />
+			<exclude name="${java5-app-files1}" />
+			<exclude name="${java6-files}" />
+			<exclude name="${midp-only-files}" />
+		</javac>		
+		<echo message="    * Compiling OpenUAT core: authentication protocols"/>
+		<javac srcdir="${src}" destdir="${bin-core}" includeAntRuntime="no"
+		       classpathref="lib.path.all" debug="${compile.debug}" target="${compile.level}" source="${compile.level}"
+		       includes="org/openuat/authentication/">
+			<exclude name="${test-files1}" />
+			<exclude name="${test-files2}" />
+			<exclude name="${test-files3}" />
+			<exclude name="${java5-core-files1}" />
+			<exclude name="${java5-app-files1}" />
+			<exclude name="${java6-files}" />
+			<exclude name="${midp-only-files}" />
+		</javac>
+		
+		<echo message="    * Compiling OpenUAT core: secure communication channels"/>
+		<javac srcdir="${src}" destdir="${bin-auxchannels}" includeAntRuntime="no"
+		       classpathref="lib.path.all" debug="${compile.debug}" target="${compile.level}" source="${compile.level}"
+		       includes="org/openuat/channel/oob/ org/openuat/channel/vpn/ org/openuat/channel/bluetooth/jsr82/ org/openuat/roles/">
+			<exclude name="${test-files1}" />
+			<exclude name="${test-files2}" />
+			<exclude name="${test-files3}" />
+			<exclude name="${java5-core-files1}" />
+			<exclude name="${java5-app-files1}" />
+			<exclude name="${java6-files}" />
+			<exclude name="${midp-only-files}" />
+		</javac>
+		
+		<echo message="    * Compiling OpenUAT example applications"/>
+		<javac srcdir="${src}" destdir="${bin-apps}" includeAntRuntime="no"
+		       classpathref="lib.path.all" debug="${compile.debug}" target="${compile.level}" source="${compile.level}"
+		       includes="org/openuat/apps/">
+			<exclude name="${test-files1}" />
+			<exclude name="${test-files2}" />
+			<exclude name="${test-files3}" />
+			<exclude name="${java5-core-files1}" />
+			<exclude name="${java5-app-files1}" />
+			<exclude name="${java6-files}" />
+			<exclude name="${midp-only-files}" />
+		</javac>
+		
+		<!-- And call the targets for compiling code that requires Java levels higher than 2 and MIDP -->
+		<antcall target="compile-java5"/>
+		<antcall target="compile-java6"/>
+		<antcall target="compile-midp"/>
+	</target>
+	
+	<!-- This is a special target for compiling J2ME MIDP-only classes, the 
+	 other "common" classes are compiled in the standard compile target for
+	 Java language level 1.2. -->
+	<target name="compile-midp" description="Compile special classes for MIDP2.0" if="haveWTK">
+		<mkdir dir="${bin-microlog}"/>
+		<mkdir dir="${bin-bandy}"/>
+
+		<echo message="    * Compiling OpenUAT J2ME thirdparty code: logging"/>
+		<!-- Compile the MicroLog dependencies -->
+		<javac srcdir="${thirdparty-microlog}" destdir="${bin-microlog}" includeAntRuntime="no"
+		       classpathref="lib.path.midp" debug="${compile.debug}" target="1.2" source="1.2" />
+
+		<!-- And the wrapper around it to have it usable under the log4j package name -->
+		<javac srcdir="${thirdparty-microlog-wrapper}" destdir="${bin-microlog}" includeAntRuntime="no"
+		       classpathref="lib.path.midp" debug="${compile.debug}" target="1.2" source="1.2" />
+		
+		<!-- Compile the Bandy dependencies -->
+		<javac srcdir="${thirdparty-bandy}" destdir="${bin-bandy}" includeAntRuntime="no"
+		       classpathref="lib.path.midp" debug="${compile.debug}" target="1.2" source="1.2" />
+		
+		<echo message="    * Compiling OpenUAT J2ME core and example MIDlets"/>
+		<javac srcdir="${src}" destdir="${bin.midp}" includeAntRuntime="no"
+		       classpathref="lib.path.midp" debug="${compile.debug}" target="1.2" source="1.2"
+		       includeJavaRuntime="no">
+			<include name="${midp-only-files}" />
+			<include name="com/swetake/util/test/" />
+			<include name="org/codec/audio/test/" />
+		</javac>
+	</target>
+    
+	<target name="jar-midp" depends="compile" description="Build packages for J2ME MIDP" if="haveWTK">
+		<delete dir="${build.midp.work}"/>
+		<delete dir="${bin.midp}"/>
+        <mkdir dir="${build.midp.work}"/>
+        <mkdir dir="${bin.midp}"/>
+
+		<!-- Include the J2ME Polish tasks for building J2ME packages -->
+		<taskdef name="j2mepolish" 
+			classname="de.enough.polish.ant.PolishTask" 
+			classpath="${polish.home}/lib/enough-j2mepolish-build.jar:${polish.home}/lib/jdom.jar">
+		</taskdef>
+
+		<!-- bad, ugly, evil, unmaintainable, and should-be-completely-unnecessary hack begins here -->
+		<!-- I can't get the dumb j2mepolish build/compiler part to only use the classes 
+		     the MIDlet depends on (the includes attribute obviously doesn't work, so just copy
+		     the required files manually and build from there... -->
+		<delete dir="${build.midp.temp}"/>
+		<mkdir dir="${build.midp.temp}"/>
+		<copy todir="${build.midp.temp}" failonerror="true">
+			<fileset dir="${src}" includes="org/openuat/apps/j2me/BluetoothDemo.java
+				org/openuat/apps/j2me/ManualAuthentication.java org/openuat/apps/j2me/SimpleWallet.java
+				org/openuat/util/Bluetooth*.java org/openuat/util/RemoteConnection.java
+				org/openuat/util/HostServerBase.java org/openuat/authentication/HostProtocolHandler.java 
+				org/openuat/util/MessageListener.java org/openuat/util/LoggingHelper.java
+				org/openuat/util/DebugInputStream.java org/openuat/util/DebugOutputStream.java
+				org/openuat/util/ProtocolCommandHandler.java org/openuat/util/LineReaderWriter.java 
+				org/openuat/authentication/SimpleKeyAgreement.java org/openuat/util/Hash.java
+				org/openuat/authentication/KeyManager.java org/openuat/util/HostAuthenticationServer.java
+				org/openuat/authentication/AuthenticationEventSender.java
+				org/openuat/authentication/OOBChannel.java
+				org/openuat/authentication/OOBMessageHandler.java
+				org/openuat/authentication/AuthenticationProgressHandler.java org/openuat/authentication/exceptions/*.java
+				org/openuat/util/SafetyBeltTimer.java
+				org/openuat/util/SimpleBlockCipher.java
+				org/openuat/util/ifPair.java
+				org/openuat/util/ifListener.java
+				org/openuat/util/Pair.java
+				org/openuat/channel/UACAPProtocolConstants.class
+				org/openuat/channel/ifComm.java
+				org/openuat/channel/http/*.java
+				org/openuat/apps/groupkey/appPair*.java
+				org/openuat/apps/groupkey/appStub*.java
+				net/mypapit/java/StringTokenizer.java
+				org/openuat/util/IntervalList.java org/openuat/util/RgbColor.java
+				org/openuat/channel/oob/Button*.java org/openuat/channel/oob/*ToButtonChannel.java
+				org/openuat/log/Log.java
+				org/openuat/log/LogFactory.java" />
+			<fileset dir="${thirdparty-google-zxing}" includes="com/google/zxing/common/**/*.java com/google/zxing/*.java
+				com/google/zxing/client/result/*.java com/google/zxing/oned/*.java
+				com/google/zxing/qrcode/**/*.java com/google/zxing/**/j2me/**/*.java" />
+		</copy>
+
+		<!-- additional files for the second and third MIDlets -->
+		<copy todir="${build.midp.temp}" failonerror="true">
+			<fileset dir="${src}" includes="org/openuat/apps/j2me/ShakeMIDlet.java
+				org/openuat/apps/j2me/HapadepMIDlet.java
+				org/openuat/channel/UACAPProtocolConstants.class
+				org/openuat/sensors/SamplesSource.java org/openuat/sensors/SamplesSink.java
+				org/openuat/sensors/SamplesSink_Int.java org/openuat/sensors/SegmentsSink_Int.java
+				org/openuat/sensors/SegmentsSink.java org/openuat/sensors/VectorSamplesSink.java
+				org/openuat/sensors/TimeSeries_Int.java org/openuat/sensors/TimeSeries.java
+				org/openuat/sensors/TimeSeriesAggregator.java org/openuat/sensors/DeviceStateListener.java
+				org/openuat/sensors/TimeSeriesBundle.java
+				org/openuat/sensors/j2me/SymbianTCPAccelerometerReader.java
+				org/openuat/features/FPIntFFT.java org/openuat/features/Coherence_Int.java
+				org/openuat/features/TimeSeriesUtil.java
+				org/openuat/features/Coherence.java org/openuat/features/FFT.java org/openuat/features/Complex.java 
+				org/openuat/authentication/accelerometer/ShakeWellBeforeUseParameters.java
+				org/openuat/authentication/accelerometer/ShakeWellBeforeUseProtocol1.java
+				org/openuat/authentication/DHWithVerification.java org/openuat/authentication/InterlockProtocol.java
+				**/j2me/**/*.java  **/common/**/*.java org/codec/utils/*.java org/codec/mad/*.java" />
+		</copy>
+		<!-- hack ends here -->
+
+		<j2mepolish>
+		    <!-- general settings, these settings basically form the JAD-attributes. -->
+		    <!-- Have a look at the <jad>-section for setting specialised attributes.
+		         You can also define localized attributes in the resources/messages.txt files -->
+			<!--		jarName="${ nospace(polish.vendor) }-${ nospace(polish.name) }-auth.jar"--> 
+			<info
+				name="Authentication"
+				version="1.0.0"
+				description="Some demonstration MIDlets for the Bluetooth, UACAP infrastructure, and out-of-band channels for authentication"
+				vendorName="Rene Mayrhofer"
+				infoUrl="http://www.openuat.org"
+				jarName="OpenUAT-MIDlets.jar" 
+				jarUrl="${deploy-url}${polish.jarName}"
+				copyright="Copyright 2006, 2007 Rene Mayrhofer. All rights reserved."
+			/>
+			
+			<!-- selection of supported devices -->
+			<!--<deviceRequirements if="test">
+				<requirement name="Identifier" value="${device}" />
+			</deviceRequirements>
+			<deviceRequirements unless="test">-->
+			<deviceRequirements>
+				<!--<requirement name="Identifier" value="Generic/jtwi,Generic/midp1,Generic/Midp2Cldc11,Nokia/Series40E3,Nokia/Series60E2,Nokia/Series60E3,Sony-Ericsson/JavaPlatform6" />-->
+				<!--<requirement name="Identifier" value="Generic/Midp2Cldc11" />-->
+				<!--<requirement name="Identifier" value="Generic/multi" />-->
+				<!-- ATTENTION: Need to specify the N95 here, because that seems to be the only phone that
+				     includes the advancedmultimedia API and is listed in the J2ME Polish device database.
+				     However, it shouldn't matter, because the compiled JAR file installs on other phones
+				     as well without a problem.
+				     Don't install the JAD file, only use the JAR, though! -->
+				<requirement name="Identifier" value="Nokia/N95" />
+				<requirement name="JavaPackage" value="btapi" />
+				<requirement name="JavaPackage" value="mmapi" />
+				<requirement name="JavaPackage" value="advancedmultimedia" />
+				<requirement name="JavaPlatform" value="MIDP/2.0+" />
+			</deviceRequirements>
+			
+		    <!-- build settings -->
+			<build
+				symbols="ExampleSymbol, AnotherExample"
+				fullscreen="menu"
+				usePolishGui="false"
+				workDir="${build.midp.work}"
+				sourceDir="${build.midp.temp}"
+				destDir="${dist}"
+				compilerDestDir="${bin.midp}"
+				binaryLibraries="${bin-microlog}${separator}${bin-bandy}${separator}${bin-BC-core}"
+				>
+				<!--change for win -->
+				<!-- midlets definition -->
+				<midlet class="org.openuat.apps.j2me.BluetoothDemo" name="Bluetooth connections demo"/>
+
+				<midlet class="org.openuat.apps.j2me.SimpleWallet" name="Simple password wallet"/>
+
+				<midlet class="org.openuat.apps.j2me.ShakeMIDlet" name="ShakeMe demo"/>
+
+				<midlet class="org.openuat.apps.j2me.ManualAuthentication" name="Manual authentication demo"/>
+				
+				<midlet class="org.openuat.apps.j2me.OpenUATmidlet" name="OpenUAT Toolkit"/>
+				
+				<midlet class="org.openuat.apps.j2me.BedaMIDlet" name="Beda demo"/>
+				
+				<midlet class="org.openuat.apps.groupkey.appStubMidlet" name="Stub"/>
+				<variables includeAntProperties="true">
+					<variable file="${src}/configuration.midp.properties" />
+					<variable name="cfg.shakingDemoMode" value="false" />
+				</variables>
+				<!-- activate Java 5 syntax support -->
+				<!-- TODO: this doesn't work yet - proguard emits errors when activated -->
+				<!--<compiler source="1.5" target="1.5"/>
+				<postcompiler name="java5" />-->
+				<!-- obfuscator settings: do not obfuscate when the test-property is true  -->
+				<!-- ATTENTION: Do not deactivate the obfuscator! Otherwise, the JAR file will not
+				     install on real phones, because Bouncycastle ships a few classes in the
+				     java.util, java.math, and java.security packages that are missing in MIDP but
+				     required by the code. The mobile phone preverifier will not allow additions to
+				     these subpackages, and hence install will fail. By obfuscating, the internal 
+				     class names change in the JAR can be installed. -->
+				<obfuscator name="ProGuard" useDefaultPackage="true" unless="test or debug2">
+					<!-- with optimize=true the code no longer pre-verifies -->
+					<parameter name="optimize" value="false" />
+					<!--<parameter name="shrink" value="true" />-->
+					<!-- because BitSet implements clone (which is never called) -->
+<!--					<parameter name="ignorewarnings" value="true" /> -->
+				</obfuscator>
+				<!-- resources to be included in the JAR file -->
+				<resources>
+					<!-- doesn't really do anything right now... -->
+					<fileset dir="${src}" includes="microlog.properties" />
+					<fileset dir="${resources}" includes="button_*.png" />
+					<fileset dir="${resources}" includes="**_sm.png" />
+					<fileset dir="${resources}/qrcode_data" includes="qrv1_0.dat" />
+					<fileset dir="${resources}/qrcode_data" includes="qrvfr1.dat" />
+					<fileset dir="${resources}/qrcode_data" includes="rsc10.dat" />
+					<fileset dir="${resources}/qrcode_data" includes="qrv2_0.dat" />
+					<fileset dir="${resources}/qrcode_data" includes="qrvfr2.dat" />
+					<fileset dir="${resources}/qrcode_data" includes="rsc16.dat" />
+					<fileset dir="${resources}/qrcode_data" includes="qrv3_0.dat" />
+					<fileset dir="${resources}/qrcode_data" includes="qrvfr3.dat" />
+					<fileset dir="${resources}/qrcode_data" includes="rsc26.dat" />
+					<fileset dir="${resources}/hapadep" includes="**" />
+					<fileset dir="${resources}" includes="Button_Icon_*.png" />
+					<fileset dir="${resources}" includes="Traffic_lights_dark_*.png" />
+					<fileset dir="${resources}" includes="phone_*.png" />
+				</resources>
+				<!-- user defined JAD attributes can also be used: -->
+<!--				<jad>
+					<attribute name="Nokia-MIDlet-Category" value="Game" if="polish.group.Series40" />
+				</jad>	-->
+				<!-- and of course need to sign -->
+				<sign key="authentication" password="authentication" keystore="${dist}/keystore" unless="test" />
+			</build>
+		</j2mepolish>		
+
+
+		<!-- build multiple versions of the ShakeMIDlet - "real" and demo modes -->
+		<!-- need to build afresh, because the source code is changed by the precompiler (and we patch in the Bluetooth MACs) -->
+		<!-- disabled for now, demo no longer used -->
+		<delete dir="${build.midp.work}"/>
+		<delete dir="${bin.midp}"/>
+		<mkdir dir="${build.midp.work}"/>
+		<mkdir dir="${bin.midp}"/>
+		<j2mepolish>
+			<info
+				name="Shake Well Before Use"
+				version="1.0.0"
+				description="A demonstration MIDlet for the Shake Well Before Use authentication protocol"
+				vendorName="Rene Mayrhofer"
+				infoUrl="http://www.openuat.org"
+				jarName="${ nospace(polish.vendor) }-${ nospace(polish.name) }-shakeme-DEMOSET1.jar" 
+				jarUrl="${deploy-url}${polish.jarName}"
+				copyright="Copyright 2006, 2007 Rene Mayrhofer. All rights reserved."
+			/>
+			<deviceRequirements>
+				<requirement name="Identifier" value="Nokia/N95" />
+				<requirement name="JavaPackage" value="btapi" />
+				<requirement name="JavaPackage" value="mmapi" />
+				<requirement name="JavaPlatform" value="MIDP/2.0+" />
+			</deviceRequirements>
+			<build
+				symbols="ExampleSymbol, AnotherExample"
+				fullscreen="menu"
+				usePolishGui="false"
+				workDir="${build.midp.work}"
+				sourceDir="${build.midp.temp}"
+				destDir="${dist}"
+				compilerDestDir="${bin.midp}"
+				binaryLibraries="${bin-microlog}${separator}${bin-bandy}${separator}${bin-BC-core}">
+				<midlet class="org.openuat.apps.j2me.ShakeMIDlet" name="ShakeMe"/>
+				<variables includeAntProperties="true">
+					<variable file="${src}/configuration.midp.properties" />
+					<variable name="cfg.shakingDemoMode" value="true" />
+					<!--<variable name="demo.peer1" value="001C9A1F9B11" />--> <!-- N95 -->
+					<variable name="demo.peer1" value="00180FA4C997" /> <!-- 5500 Shakeme 1 -->
+					<variable name="demo.peer2" value="00180FA3A1D4" /> <!-- 5500 Shakeme 2 -->
+				</variables>
+				<obfuscator name="ProGuard" useDefaultPackage="true" unless="test or debug2">
+					<parameter name="optimize" value="false" />
+				</obfuscator>
+				<resources>
+					<fileset dir="${resources}" includes="button_*.png" />
+					<fileset dir="${src}" includes="microlog.properties" />
+				</resources>
+				<sign key="authentication" password="authentication" keystore="${dist}/keystore" unless="test" />
+			</build>
+		</j2mepolish>
+		
+		<!-- create JAD files -->
+<!--		<wtkjad jadfile="${build}/HelloProperty.jad"
+			jarfile="HelloProperty.jar"
+			name="MyHelloProperty"
+			vendor="Rene Mayrhofer"
+			version="0.0.1"
+			update="true">
+			<midlet name="MyHelloProperty" class="org.openuat.apps.j2me.HelloProperty"/>
+		</wtkjad>-->
+    	
+		<!-- and package and preverify -->
+		<!-- TODO: specify required libraries that should be put into the package with the libclasspath property or nested FileSet or ZipFileSet or ZipGroupFileSet elements -->
+		<!-- TODO: set obfuscate=true -->
+<!--		<wtkpackage jarfile="${build}/HelloProperty.jar" jadfile="${build}/HelloProperty.jad" preverify="false" obfuscate="false">
+			<fileset dir="${bin}" includes="org/openuat/apps/j2me/HelloProperty.class"/>
+		</wtkpackage>
+		<wtkpackage jarfile="${build}/BluetoothDemo.jar" jadfile="${build}/BluetoothDemo.jad" preverify="false" obfuscate="false">
+			<fileset dir="${bin}" includes="org/openuat/apps/j2me/BluetoothDemo.class 
+				org/openuat/util/Bluetooth*.class org/openuat/util/RemoteConnection.class
+				org/openuat/util/HostServerBase.class org/openuat/authentication/HostProtocolHandler*.class 
+				org/openuat/authentication/SimpleKeyAgreement.class org/openuat/util/Hash.class
+				org/openuat/authentication/AuthenticationEventSender.class 
+				org/openuat/authentication/AuthenticationProgressHandler.class org/openuat/authentication/exceptions/*.class"/>
+			 need the apache commons files 
+			<fileset dir="${bin-BC-core}" includes="org/apache/commons/codec/**/*.class"/>
+			 and MicroLog as log4j replacement 
+			<fileset dir="${bin-microlog}" includes="**/*.class"/>
+			<fileset dir="${src}" includes="microlog.properties"/>
+			 the dependencies for SimpleKeyAgreement 
+			<fileset dir="${bin-BC-core}" />
+		</wtkpackage>-->
+    	
+<!--		<wtkpreverify jarfile="${build}/HelloProperty.jar" jadfile="${build}/HelloProperty.jad"/>
+		<wtkpreverify jarfile="${build}/BluetoothDemo.jar" jadfile="${build}/BluetoothDemo.jad"/>-->
+	</target>
+	
+
+	<target name="run-midp" depends="jar-midp" description="Run the J2ME MIDP applications in the simulator" if="haveWTK">
+		<j2mepolish>
+			<emulator
+				wait="true"
+				securityDomain="trusted"
+				enableProfiler="true"
+				enableMemoryMonitor="true"
+				enableNetworkMonitor="true"
+				if="debug"
+				>
+				<!-- this is an example for connecting to a debugger - use the ${polish.debug.port} Ant property
+				     for getting to know the port of the debugger. In this example the 
+				     "connect-debugger" target is also required.
+				-->
+				<!--
+				<debugger name="antcall" target="connect-debugger" port="6001" />
+				-->
+			</emulator>
+                        
+			<emulator
+				wait="true"
+				trace="none"
+				securityDomain="trusted"
+				enableProfiler="false"
+				enableMemoryMonitor="false"
+				enableNetworkMonitor="false"
+				if="test and not debug"
+				>
+			</emulator>
+		</j2mepolish>
+	</target>
+
+	<target name="push-midp" depends="jar-midp" description="Push the generated MIDP applications to a device via OBEX push">
+		<exec executable="obexftp">
+			<arg line="-b 00:1C:9A:1F:9B:11"/> <!-- N95 -->
+       		<!-- can add as many as necessary -->
+		  	<!-- <arg line="-p ${build}/HelloProperty.jar"/> -->
+			<!--<arg line="-p ${dist}/Generic-multi-bt_dh-demo.jar"/>-->
+			<!--<arg line="-p ${dist}/Nokia-N95-shakeme-DEMOSET1.jar"/>-->
+			<arg line="-p ${dist}/OpenUAT-MIDlets.jar"/>
+		</exec>
+		<exec executable="obexftp"> <!-- Samsung Omnia i900 -->
+			<arg line="-b 00:21:D2:F9:AC:15"/>
+			<arg line="-U NONE -H -S"/> <!-- needs special options, see http://www.mayrhofer.eu.org/Default.aspx?pageid=80 -->
+			<arg line="-p ${dist}/OpenUAT-MIDlets.jar"/>
+		</exec>
+		<exec executable="obexftp"> <!-- HTC Touch Diamond -->
+			<arg line="-b 00:17:E8:3A:22:E1"/>
+			<arg line="-p ${dist}/OpenUAT-MIDlets.jar"/>
+		</exec>
+		<exec executable="obexftp"> <!-- 5500 Shakeme 1 -->
+			<arg line="-b 00:18:0F:A4:C9:97"/>
+			<arg line="-p ${dist}/Nokia-N95-shakeme-DEMOSET1.jar"/>
+		</exec>
+		<exec executable="obexftp"> <!-- 5500 Shakeme 2 -->
+			<arg line="-b 00:18:0F:A3:A1:D4"/>
+			<arg line="-p ${dist}/Nokia-N95-shakeme-DEMOSET1.jar"/>
+		</exec>
+	</target>
+
+	<target name="check" description="Check source code for style">
+		<checkstyle config="${src}/checkstyle_checks.xml">
+			<fileset dir="${src}" includes="**/*.java"/>
+			<formatter type="plain"/>
+			<formatter type="xml" toFile="${reports.checkstyle}"/>
+		</checkstyle>
+	</target>
+	
+	<target name="findbugs" depends="jar-standard">
+		<findbugs home="${findbugs.home}"
+			output="html"
+			outputFile="${reports}/findbugs.html" >
+			<auxClasspath path="${jarfile.distbundle}" />
+			<sourcePath path="${src}" />
+			<class location="${jarfile.core}" />
+			<class location="${jarfile.channels}" />
+			<class location="${jarfile.apps}" />
+			<class location="${bin-test}" />
+		</findbugs>
+	</target>
+
+	<target name="checkall" depends="jar,junit,findbugs,coverage-report,check"/>
+
+	<target name="dist-javadoc" description="Create distribution files for the documentation (Javadoc)">
+		<mkdir dir="${dist.javadoc}"/>
+		<javadoc sourcepath="${src}" destdir="${dist.javadoc}" 
+		     packagenames="org.openuat.*"
+		     classpathref="lib.path.all"
+		     access="protected"
+		     version="true" author="true" source="1.5">
+			<bottom><![CDATA[<i>2005-2009, Rene Mayrhofer.</i>]]></bottom>
+			<link href="www.openuat.org"/>
+		</javadoc>
+		
+		<!-- and also zip it up -->
+		<zip zipfile="${zipfile.javadoc}" update="true" duplicate="fail">
+			<fileset dir="${dist.javadoc}"/>
+		</zip>
+	</target>
+
+	<target name="dist-source" description="Create source distribution">
+		<zip zipfile="${zipfile.source}" update="true" duplicate="fail">
+			<fileset dir="." 
+		    	     includes="build.xml build.properties Changelog README FAQ .classpath .project 
+						src/**/* src-python/**/* src-php/**/* src-android/**/* 
+						resources/**/* lib/**/* dist/*.jnlp 
+						tests/**/*
+						thirdparty/bouncycastle-*-deps/**/* thirdparty/ipsec2k.1.1/**/*.h 
+						thirdparty/ipsec2k.1.1/**/*.cpp thirdparty/ipsec2k.1.1/**/wstring 
+						thirdparty/ipsec2k.1.1/**/buffer thirdparty/ipsec2k.1.1/**/*.vcproj 
+						thirdparty/ipsec2k.1.1/**/*.sln thirdparty/ipsec2k.1.1/**/*.txt 
+						thirdparty/apache-bzip2/**/* thirdparty/microlog/**/* thirdparty/log4jNoop/**/* 
+						thirdparty/zxing/**/* thirdparty/bandy/**/* nativelib/**/* 
+						thirdparty/findbugs-*/**/*"/>
+		</zip>
+	</target>
+    
+	<target name="dist" depends="junit,dist-webstart,dist-android,dist-javadoc,dist-source"
+		description="Create a complete distribution, including webstart, applications, source, and docs"/>
+    
+	<target name="dist-checkbuild" depends="dist"
+		description="Test building the complete source distribution. This checks if a 'ant dist' as run from a clean tree creates a source ZIP that equals the source tree it was created with. It should be executed before publishing a release.">
+		<mkdir dir="${build.distcheck}" />
+		<mkdir dir="${build.distcheck}/orig" />
+		<mkdir dir="${build.distcheck}/build-clean" />
+		<mkdir dir="${build.distcheck}/build-extract" />
+		
+		<echo message="Unzipping source ZIP created from master tree (twice)" />
+		<unzip src="${zipfile.source}" dest="${build.distcheck}/orig" />
+		<unzip src="${zipfile.source}" dest="${build.distcheck}/build-clean" />
+		
+		<echo message="Calling 'junit' and 'dist' targets in unzipped source tree" />
+		<ant antfile="build.xml" inheritrefs="no" inheritall="no" dir="${build.distcheck}/build-clean">
+			<!-- don't call the "dist" target because that would include "dist-webstart" which can't run without the keystore -->
+			<target name="junit" />
+			<target name="dist-javadoc" />
+			<target name="dist-source" />
+		</ant>
+		
+		<echo message="Unzipping source ZIP created from unzipped tree" />
+		<unzip src="${build.distcheck}/build-clean/dist/${ant.project.name}-src.zip" dest="${build.distcheck}/build-extract" />
+	
+		<echo message="Calling 'clean' target in unzipped source tree" />
+		<ant antfile="build.xml" target="clean" inheritrefs="no" inheritall="no" dir="${build.distcheck}/build-clean"/>
+		<!-- manually clean those two parts - they are normally left intact on a "clean" -->
+		<delete dir="${build.distcheck}/build-clean/reports"/>
+		<delete file="${build.distcheck}/build-clean/build.number"/>
+		
+		<echo message="Comparing all three unzipped trees - they should be equal" />
+		<exec executable="diff" failonerror="true" failifexecutionfails="true">
+			<arg value="-rq" />
+			<arg value="${build.distcheck}/orig" />
+			<arg value="${build.distcheck}/build-clean" />
+		</exec>
+		<exec executable="diff" failonerror="true" failifexecutionfails="true">
+			<arg value="-rq" />
+			<arg value="${build.distcheck}/orig" />
+			<arg value="${build.distcheck}/build-extract" />
+		</exec>	
+	</target>
+
+	<target name="clean" description="Remove build and dist directories">
+		<delete dir="${build}"/>
+		<!-- <delete dir="${reports}"/> -->
+		<delete>
+			<fileset dir="${dist}" includes="*.jar,*.jad,*.zip"/>
+		</delete>
+		<delete dir="${dist.webstart}"/>
+		<delete dir="${dist.javadoc}"/>
+	</target>
+</project>
