@@ -583,21 +583,6 @@
 		</checkstyle>
 	</target>
 	
-	<target name="findbugs" depends="jar-standard">
-		<findbugs home="${findbugs.home}"
-			output="html"
-			outputFile="${reports}/findbugs.html" >
-			<auxClasspath path="${jarfile.distbundle}" />
-			<sourcePath path="${src}" />
-			<class location="${jarfile.core}" />
-			<class location="${jarfile.channels}" />
-			<class location="${jarfile.apps}" />
-			<class location="${bin-test}" />
-		</findbugs>
-	</target>
-
-	<target name="checkall" depends="jar,junit,findbugs,coverage-report,check"/>
-
 	<target name="dist-javadoc" description="Create distribution files for the documentation (Javadoc)">
 		<mkdir dir="${dist.javadoc}"/>
 		<javadoc sourcepath="${src}" destdir="${dist.javadoc}" 
@@ -622,17 +607,13 @@
 						src/**/* src-python/**/* src-php/**/* src-android/**/* 
 						resources/**/* lib/**/* dist/*.jnlp 
 						tests/**/*
-						thirdparty/bouncycastle-*-deps/**/* thirdparty/ipsec2k.1.1/**/*.h 
-						thirdparty/ipsec2k.1.1/**/*.cpp thirdparty/ipsec2k.1.1/**/wstring 
-						thirdparty/ipsec2k.1.1/**/buffer thirdparty/ipsec2k.1.1/**/*.vcproj 
-						thirdparty/ipsec2k.1.1/**/*.sln thirdparty/ipsec2k.1.1/**/*.txt 
+						thirdparty/bouncycastle-*-deps/**/*  
 						thirdparty/apache-bzip2/**/* thirdparty/microlog/**/* thirdparty/log4jNoop/**/* 
-						thirdparty/zxing/**/* thirdparty/bandy/**/* nativelib/**/* 
-						thirdparty/findbugs-*/**/*"/>
+						thirdparty/zxing/**/* thirdparty/bandy/**/*"/>
 		</zip>
 	</target>
     
-	<target name="dist" depends="junit,dist-webstart,dist-android,dist-javadoc,dist-source"
+	<target name="dist" depends="dist-javadoc,dist-source"
 		description="Create a complete distribution, including webstart, applications, source, and docs"/>
     
 	<target name="dist-checkbuild" depends="dist"
