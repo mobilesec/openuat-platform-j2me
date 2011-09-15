@@ -14,5 +14,6 @@
 	<classpathentry kind="lib" path="/openuat/lib/jsr082.jar"/>
 	<classpathentry kind="lib" path="/openuat/lib/junit.jar"/>
 	<classpathentry kind="lib" path="/openuat/lib/tgdh-1.2.jar"/>
+	<classpathentry kind="lib" path="lib/slf4j-api-1.6.2.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>
